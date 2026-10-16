@@ -4,6 +4,8 @@
 
 Comparativa de siete métodos para reconocer dígitos escritos a mano (MNIST), desde la comparación con plantillas mediante SSIM hasta una red convolucional en PyTorch, todos evaluados con la misma partición y sin fuga de datos. La mejor red (99,4 % de exactitud en test) se exporta a ONNX y reconoce dígitos en tiempo real con la webcam y en una web hecha con Streamlit.
 
+**Demo:** https://digitos-mnist.streamlit.app
+
 > **English summary.** Seven handwritten-digit classifiers on MNIST (SSIM template matching and nearest neighbour, HOG + linear SVM, an MLP, LeNet and LeNet with data augmentation in PyTorch) compared on the same split with a held-out test set. The augmented CNN reaches 99.4 % test accuracy and keeps 98.9 % on rotated, shifted and rescaled digits, while the same network without augmentation drops to 82.5 %. Includes a real-time webcam demo (OpenCV) with an MNIST-style preprocessing pipeline and a Streamlit app that runs the model with ONNX Runtime.
 
 ## Resultados
@@ -54,6 +56,8 @@ python demo_webcam.py --gif demo.gif     # graba un GIF mientras la usas (se gua
 En macOS, la primera vez hay que dar permiso de cámara a la Terminal (Ajustes del Sistema > Privacidad y seguridad > Cámara).
 
 ## Web con Streamlit
+
+Está publicada en https://digitos-mnist.streamlit.app. Para ejecutarla en local:
 
 ```bash
 streamlit run app_digitos.py
