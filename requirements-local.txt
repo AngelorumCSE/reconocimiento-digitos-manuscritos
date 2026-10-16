@@ -1,0 +1,18 @@
+# Entorno completo: experimentos, demo con webcam, web y tests.
+# Instálalo en un entorno virtual limpio con Python 3.10 a 3.13
+# (no mezcles opencv-python con opencv-python-headless).
+# En un Mac con procesador Intel, PyTorch solo llega a la versión 2.2, que necesita NumPy 1.x.
+numpy>=1.26,<2; platform_system == "Darwin" and platform_machine == "x86_64"
+numpy>=1.26; platform_system != "Darwin" or platform_machine != "x86_64"
+pandas>=2.0
+matplotlib>=3.8
+scikit-learn>=1.4
+scikit-image>=0.22
+joblib>=1.3
+torch>=2.2
+torchvision>=0.17
+onnx>=1.16
+onnxruntime>=1.17
+opencv-python>=4.8
+streamlit>=1.46
+pytest>=8.0

@@ -1,0 +1,7 @@
+# Dependencias de la web (Streamlit). Son las que instala Streamlit Community Cloud.
+# Para reproducir los experimentos o usar la demo con webcam, usa requirements-local.txt.
+numpy>=1.26
+pandas>=2.0
+opencv-python-headless>=4.8
+onnxruntime>=1.17
+streamlit>=1.46

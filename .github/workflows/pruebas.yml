@@ -1,0 +1,26 @@
+name: Pruebas
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-local.txt
+      - name: Biblioteca del sistema que necesita OpenCV
+        run: sudo apt-get update -q && sudo apt-get install -y -q libgl1
+      - name: Dependencias (PyTorch para CPU, sin CUDA)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-local.txt
+      # Las dos pruebas de extremo a extremo necesitan MNIST, que no está en el repositorio,
+      # y se omiten solas; el resto usa datos sintéticos y el modelo de models/.
+      - name: Pruebas
+        run: pytest -q -rs

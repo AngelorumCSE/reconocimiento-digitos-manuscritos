@@ -1,0 +1,11 @@
+data/
+capturas/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+.ipynb_checkpoints/
+*_reconocido.png
+mis_fotos/
