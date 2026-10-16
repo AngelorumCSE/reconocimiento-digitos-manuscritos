@@ -9,6 +9,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 @pytest.mark.skipif(not (RAIZ / "models" / "cnn_aumentada.onnx").exists(), reason="falta el modelo entrenado")
 def test_la_web_arranca_sin_errores():
+    """Se ejecuta la web como lo haría Streamlit y se comprueba el título y las tres pestañas."""
     from streamlit.testing.v1 import AppTest
 
     app = AppTest.from_file(str(RAIZ / "app_digitos.py"), default_timeout=60).run()

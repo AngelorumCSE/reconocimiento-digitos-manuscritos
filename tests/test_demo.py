@@ -16,22 +16,27 @@ class CamaraSimulada:
     """Imita cv2.VideoCapture: devuelve unos cuantos fotogramas con un dígito y luego se acaba."""
 
     def __init__(self, n=12):
+        """Prepara n fotogramas simulados de webcam con un 3 escrito en una hoja."""
         self.fotogramas = [fotograma_simulado(digito_sintetico("3"), 640, 480, semilla=i) for i in range(n)]
 
     def isOpened(self):
+        """La cámara simulada siempre está disponible."""
         return True
 
     def read(self):
+        """Devuelve el siguiente fotograma, o (False, None) cuando ya no quedan."""
         if not self.fotogramas:
             return False, None
         return True, self.fotogramas.pop(0)
 
     def release(self):
+        """No hay nada que cerrar."""
         pass
 
 
 @pytest.mark.skipif(not HAY_MODELO, reason="falta el modelo entrenado")
 def test_demo_procesa_fotogramas_y_graba_el_gif(tmp_path, monkeypatch):
+    """La demo enseña los 12 fotogramas con el panel lateral y guarda un GIF que no está vacío."""
     import demo_webcam
 
     mostrados = []

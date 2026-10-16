@@ -14,6 +14,7 @@ HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists()
 
 @pytest.mark.skipif(not HAY_MODELO, reason="falta el modelo entrenado")
 def test_evalua_una_carpeta_de_fotos(tmp_path):
+    """Con 4 fotos con etiqueta, una sin etiqueta y un .txt, evalúa solo las 4 y guarda el resumen y la figura."""
     from src.evaluar_fotos import evaluar
 
     fotos = tmp_path / "fotos"

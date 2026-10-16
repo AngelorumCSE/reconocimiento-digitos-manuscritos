@@ -14,6 +14,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 @pytest.mark.parametrize("nombre", ["mlp", "lenet", "cnn_aumentada"])
 def test_forma_de_la_salida(nombre):
+    """Cada red devuelve 10 puntuaciones por imagen."""
     modelo = crear_modelo(nombre).eval()
     with torch.no_grad():
         salida = modelo(torch.zeros(3, 1, 28, 28))
@@ -21,6 +22,7 @@ def test_forma_de_la_salida(nombre):
 
 
 def test_aumento_mantiene_forma_y_rango():
+    """El aumento de datos no cambia la forma del lote ni saca los píxeles de [0, 1]."""
     x = torch.rand(8, 1, 28, 28)
     y = aumentar_lote(x.clone(), torch.Generator().manual_seed(0))
     assert y.shape == x.shape
@@ -29,6 +31,7 @@ def test_aumento_mantiene_forma_y_rango():
 
 @pytest.mark.skipif(not (RAIZ / "models" / "cnn_aumentada.onnx").exists(), reason="falta el modelo entrenado")
 def test_onnx_y_pytorch_dan_lo_mismo():
+    """La red exportada a ONNX da las mismas puntuaciones que en PyTorch."""
     import onnxruntime as ort
 
     modelo = crear_modelo("cnn_aumentada")

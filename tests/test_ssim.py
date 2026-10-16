@@ -7,6 +7,7 @@ from src.ssim import ssim_por_pares
 
 
 def test_coincide_con_skimage():
+    """El SSIM de cada pareja coincide con el de scikit-image y vale 1 en la pareja idéntica."""
     rng = np.random.default_rng(0)
     A = rng.random((4, 28, 28)).astype(np.float32)
     B = rng.random((5, 28, 28)).astype(np.float32)
@@ -19,6 +20,7 @@ def test_coincide_con_skimage():
 
 
 def test_bloques_no_cambian_el_resultado():
+    """Calcular por bloques más pequeños da el mismo resultado."""
     rng = np.random.default_rng(1)
     A = rng.random((7, 28, 28)).astype(np.float32)
     B = rng.random((9, 28, 28)).astype(np.float32)

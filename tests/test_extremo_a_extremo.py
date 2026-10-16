@@ -12,6 +12,7 @@ HAY_DATOS = (RAIZ / "data" / "MNIST" / "raw").exists()
 
 @pytest.mark.skipif(not (HAY_MODELO and HAY_DATOS), reason="faltan el modelo entrenado o MNIST")
 def test_reconoce_fotos_simuladas_de_digitos_del_test():
+    """Con 200 fotos simuladas de dígitos del test, la cadena completa acierta al menos el 95 %."""
     from torchvision import datasets
 
     from src.inferencia import Clasificador
@@ -31,7 +32,7 @@ def test_reconoce_fotos_simuladas_de_digitos_del_test():
 
 @pytest.mark.skipif(not (HAY_MODELO and HAY_DATOS), reason="faltan el modelo entrenado o MNIST")
 def test_reconoce_fotogramas_simulados_de_la_webcam():
-    # hoja entera dentro del recuadro, sobre una mesa oscura y algo girada, como en la demo
+    """Con 100 fotogramas simulados (la hoja entera sobre una mesa, algo girada, como en la demo), acierta al menos el 95 %."""
     from torchvision import datasets
 
     from src.inferencia import Clasificador
