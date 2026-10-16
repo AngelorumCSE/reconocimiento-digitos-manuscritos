@@ -1,19 +1,32 @@
 # Reconocimiento de dígitos manuscritos: de las plantillas a las redes convolucionales
 
 [![Pruebas](https://github.com/AngelorumCSE/reconocimiento-digitos-manuscritos/actions/workflows/pruebas.yml/badge.svg)](https://github.com/AngelorumCSE/reconocimiento-digitos-manuscritos/actions/workflows/pruebas.yml)
+[![Probar la demo](https://img.shields.io/badge/Probar_la_demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://digitos-mnist.streamlit.app)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white)
+![ONNX](https://img.shields.io/badge/ONNX_Runtime-005CED?logo=onnx&logoColor=white)
+[![Licencia MIT](https://img.shields.io/badge/licencia-MIT-green)](LICENSE)
 
-Comparativa de siete métodos para reconocer dígitos escritos a mano (MNIST), desde la comparación con plantillas mediante SSIM hasta una red convolucional en PyTorch, todos evaluados con la misma partición y sin fuga de datos. La mejor red (99,4 % de exactitud en test) se exporta a ONNX y reconoce dígitos en tiempo real con la webcam y en una web hecha con Streamlit.
+Comparativa de siete métodos para reconocer dígitos escritos a mano (MNIST), desde la comparación con plantillas mediante SSIM hasta una red convolucional en PyTorch, todos evaluados con la misma partición y sin fuga de datos. La mejor red se exporta a ONNX y reconoce dígitos en tiempo real con la webcam y en una web hecha con Streamlit.
 
 **Demo:** https://digitos-mnist.streamlit.app
 
-> **English summary.** Seven handwritten-digit classifiers on MNIST (SSIM template matching and nearest neighbour, HOG + linear SVM, an MLP, LeNet and LeNet with data augmentation in PyTorch) compared on the same split with a held-out test set. The augmented CNN reaches 99.4 % test accuracy and keeps 98.9 % on rotated, shifted and rescaled digits, while the same network without augmentation drops to 82.5 %. Includes a real-time webcam demo (OpenCV) with an MNIST-style preprocessing pipeline and a Streamlit app that runs the model with ONNX Runtime.
+![La web reconociendo la foto de un 4: la imagen con el dígito detectado, el umbral, la entrada de 28x28 de la red y la probabilidad de cada dígito](reports/figuras/web.png)
+
+*La web con una foto simulada de un 4 escrito con bolígrafo (un dígito del test de MNIST pasado a papel, con sombra y ruido).*
+
+**En cifras:**
+
+- **99,4 %** de exactitud en las 10.000 imágenes de test con una CNN entrenada con aumento de datos.
+- **98,9 %** con dígitos girados, desplazados y reescalados, frente al **82,5 %** de la LeNet entrenada sin aumento.
+- **94,6 %** entrenando con solo 100 imágenes, y menos de 1 ms por imagen en CPU.
+
+> **English summary.** Seven handwritten-digit classifiers on MNIST (SSIM template matching and nearest neighbour, HOG + linear SVM, an MLP, LeNet and LeNet with data augmentation in PyTorch) compared on the same split with a held-out test set. The augmented CNN reaches 99.4 % test accuracy and keeps 98.9 % on rotated, shifted and rescaled digits, while the plain LeNet trained without augmentation drops to 82.5 %. Includes a real-time webcam demo (OpenCV) with an MNIST-style preprocessing pipeline and a Streamlit app that runs the model with ONNX Runtime.
 
 ## Resultados
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/resultados_oscuro.png">
-  <img alt="Exactitud de cada método en el test original y en el test con giros y desplazamientos" src="reports/figuras/resultados.png">
-</picture>
+![Exactitud de cada método en el test original y en el test con giros y desplazamientos](reports/figuras/resultados.png)
 
 | Método | Exactitud (test) | F1 macro | Exactitud con giros y desplazamientos | Entrenamiento | Tiempo por imagen | Parámetros |
 |---|---:|---:|---:|---:|---:|---:|
@@ -32,18 +45,15 @@ Exactitud y F1 sobre las 10.000 imágenes del test oficial, que no se usan nunca
 - **Comparar píxeles no basta.** Las plantillas medias se quedan en un 70,2 % (el 48 % de sus errores son imágenes asignadas a la plantilla del 1) y la similitud media por dígito en un 68,9 %. Buscar el ejemplo más parecido sube al 87,7 %, pero con solo 1.000 referencias (100 por dígito) ya tarda 27 ms por imagen, y el coste crece en proporción al número de ejemplos.
 - **Unas buenas características cambian el resultado.** Con histogramas de gradientes orientados (HOG), un SVM lineal llega al 97,5 % y se entrena en 30 segundos.
 - **Las convoluciones ganan.** La red LeNet alcanza el 99,2 %, frente al 98,0 % del perceptrón multicapa, y clasifica cada imagen en menos de 1 ms.
-- **El aumento de datos es lo que la hace útil fuera de MNIST.** Entrenada con giros, desplazamientos, cambios de escala y trazos más gruesos, la misma red mantiene un 98,9 % en el test perturbado, frente al 82,5 % sin aumento. Además aprovecha mejor pocos datos: con solo 100 imágenes de entrenamiento llega al 94,6 %.
+- **El aumento de datos es lo que la hace útil fuera de MNIST.** Entrenada con giros, desplazamientos, cambios de escala y trazos más gruesos, la red mantiene un 98,9 % en el test perturbado, frente al 82,5 % de la LeNet sin aumento (la versión con aumento lleva también normalización por lotes y dropout). Además aprovecha mejor pocos datos: con solo 100 imágenes de entrenamiento llega al 94,6 %.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/curva_aprendizaje_oscuro.png">
-  <img alt="Exactitud en test según el número de imágenes de entrenamiento" src="reports/figuras/curva_aprendizaje.png">
-</picture>
+![Exactitud en test según el número de imágenes de entrenamiento](reports/figuras/curva_aprendizaje.png)
 
 ## Demo en tiempo real con la webcam
 
-<img alt="Captura de la demo: la hoja con el dígito dentro del recuadro y, a la derecha, la entrada de 28x28, el dígito reconocido y la probabilidad de cada dígito" src="reports/figuras/demo_webcam.png">
+![Captura de la demo: la hoja con el dígito dentro del recuadro y, a la derecha, la entrada de 28x28, el dígito reconocido y la probabilidad de cada dígito](reports/figuras/demo_webcam.png)
 
-*Captura hecha con un fotograma simulado (`python demo_webcam.py --captura-simulada reports/figuras/demo_webcam.png`).*
+*Captura hecha con un fotograma simulado.*
 
 Escribe un dígito en un papel y colócalo dentro del recuadro: la red lo reconoce en directo. A la derecha se ve la imagen de 28x28 que recibe la red, el dígito reconocido (o «?» si la confianza no llega al 60 %) y la probabilidad de cada dígito. La predicción se promedia en los últimos fotogramas para que no parpadee.
 
@@ -67,10 +77,7 @@ La web permite hacer una foto con la cámara del navegador o subir una imagen, e
 
 ## Cómo se adapta una foto a la red
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/preprocesado_oscuro.png">
-  <img alt="Pasos del preprocesado de una foto hasta la imagen de 28x28" src="reports/figuras/preprocesado.png">
-</picture>
+![Pasos del preprocesado de una foto hasta la imagen de 28x28](reports/figuras/preprocesado.png)
 
 MNIST tiene el dígito en blanco sobre fondo negro, encajado en una caja de 20x20 píxeles y centrado por su centro de masas en una imagen de 28x28. Para que la red funcione con fotos reales, `src/preprocesado.py` reproduce ese proceso:
 
@@ -92,40 +99,33 @@ Para comprobar la cadena completa sin depender de una cámara, se simulan, a par
 - **Aumento de datos.** Giro de hasta ±20°, desplazamiento de hasta ±3 píxeles, escala de 0,85 a 1,15 y trazo más grueso en el 20 % de las imágenes, aplicado por lotes con `affine_grid`.
 - **Exportación.** La red se exporta a ONNX; la diferencia máxima con PyTorch es de 1e-05.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/confusion_cnn_oscuro.png">
-  <img alt="Matriz de confusión de la red con aumento de datos" src="reports/figuras/confusion_cnn.png">
-</picture>
+![Matriz de confusión de la red con aumento de datos](reports/figuras/confusion_cnn.png)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/errores_cnn_oscuro.png">
-  <img alt="Los fallos en los que la red estaba más segura" src="reports/figuras/errores_cnn.png">
-</picture>
+![Los fallos en los que la red estaba más segura](reports/figuras/errores_cnn.png)
 
 <details>
 <summary>Más figuras: coste de la comparación directa, entrenamiento de las redes y plantillas</summary>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/coste_ssim_oscuro.png">
-  <img alt="Exactitud y tiempo de la comparación directa con SSIM según el número de referencias" src="reports/figuras/coste_ssim.png">
-</picture>
+![Exactitud y tiempo de la comparación directa con SSIM según el número de referencias](reports/figuras/coste_ssim.png)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/entrenamiento_oscuro.png">
-  <img alt="Exactitud en validación tras cada epoch" src="reports/figuras/entrenamiento.png">
-</picture>
+![Exactitud en validación tras cada epoch](reports/figuras/entrenamiento.png)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/plantillas_oscuro.png">
-  <img alt="Las diez plantillas medias" src="reports/figuras/plantillas.png">
-</picture>
+![Las diez plantillas medias](reports/figuras/plantillas.png)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="reports/figuras/confusion_plantillas_oscuro.png">
-  <img alt="Matriz de confusión de las plantillas medias" src="reports/figuras/confusion_plantillas.png">
-</picture>
+![Matriz de confusión de las plantillas medias](reports/figuras/confusion_plantillas.png)
 
 </details>
+
+## Cómo leer el código
+
+Cada archivo empieza con un comentario que explica qué hace, y cada función, con otro que dice qué recibe y qué devuelve. Este orden va de lo más sencillo a lo más completo:
+
+1. `src/datos.py`: carga MNIST y hace la partición.
+2. `src/metodos_clasicos.py` y `src/ssim.py`: los métodos sin redes neuronales.
+3. `src/modelos.py` y `src/entrenamiento.py`: las redes y cómo se entrenan.
+4. `src/experimentos.py`: el guion que ejecuta todo y guarda los resultados.
+5. `src/preprocesado.py` e `src/inferencia.py`: de una foto al dígito reconocido.
+6. `app_digitos.py` y `demo_webcam.py`: la web y la demo con webcam.
 
 ## Estructura
 
@@ -140,12 +140,13 @@ Para comprobar la cadena completa sin depender de una cámara, se simulan, a par
 │   ├── metodos_clasicos.py     plantillas, vecino más parecido y HOG + SVM
 │   ├── modelos.py              perceptrón, LeNet y LeNet mejorada
 │   ├── entrenamiento.py        entrenamiento, parada temprana y aumento de datos
+│   ├── evaluacion.py           exactitud, F1, matriz de confusión y tiempo por imagen
+│   ├── experimentos.py         reproduce todos los resultados
+│   ├── graficas.py             figuras del README
 │   ├── preprocesado.py         de una foto a una imagen de 28x28 al estilo MNIST
+│   ├── inferencia.py           carga de la red exportada a ONNX
 │   ├── simulacion.py           fotos y fotogramas de webcam simulados para las pruebas
 │   ├── evaluar_fotos.py        exactitud con una carpeta de fotos tuyas
-│   ├── inferencia.py           carga del modelo con ONNX Runtime o PyTorch
-│   ├── experimentos.py         reproduce todos los resultados
-│   ├── graficas.py             figuras en versión clara y oscura
 │   └── figura_preprocesado.py  figura del preprocesado con una foto tuya
 └── tests/                      pruebas unitarias y de extremo a extremo
 ```
@@ -160,7 +161,7 @@ python -m src.graficas       # regenera las figuras sin volver a entrenar
 python -m pytest -q
 ```
 
-`requirements.txt` contiene solo lo necesario para la web; `requirements-local.txt`, todo lo necesario para los experimentos, la demo y los tests.
+`requirements.txt` contiene solo lo necesario para la web; `requirements-local.txt`, todo lo necesario para los experimentos, la demo y los tests. Con las mismas versiones de las librerías, los resultados salen idénticos (semilla 42); con otras, pueden cambiar alguna décima.
 
 ## Limitaciones y siguientes pasos
 

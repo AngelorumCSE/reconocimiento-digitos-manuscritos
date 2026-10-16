@@ -1,3 +1,5 @@
+"""Las redes devuelven 10 puntuaciones, el aumento de datos no rompe las imágenes y ONNX da lo mismo que PyTorch."""
+
 from pathlib import Path
 
 import numpy as np

@@ -3,9 +3,10 @@
 Uso:
     python -m src.evaluar_fotos carpeta_con_fotos/
 
-El nombre de cada foto debe empezar por el dígito que contiene: 7.jpg, 7_2.jpg o 3-rotulador.png.
-Imprime el resultado de cada foto y la exactitud, guarda un resumen en reports/fotos_reales.json
-y una figura con lo que ve la red en reports/figuras/fotos_reales.png (y su versión oscura).
+El nombre de cada foto debe empezar por el dígito que contiene: 7.jpg, 7_2.jpg o
+3-rotulador.png. Imprime el resultado de cada foto y la exactitud, y guarda un resumen
+en reports/fotos_reales.json y una figura con lo que ve la red en
+reports/figuras/fotos_reales.png.
 """
 
 import argparse
@@ -16,7 +17,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .graficas import TEMAS, confianza, figura_imagenes
+from .graficas import confianza, figura_imagenes
 from .inferencia import Clasificador
 from .preprocesado import preprocesar
 
@@ -25,7 +26,7 @@ EXTENSIONES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 def fotos_con_etiqueta(carpeta):
-    """(ruta, dígito real) de cada imagen cuyo nombre empieza por un dígito."""
+    """Lista de (ruta, dígito real) de las imágenes cuyo nombre empieza por un dígito."""
     fotos, ignoradas = [], []
     for ruta in sorted(Path(carpeta).iterdir()):
         if ruta.suffix.lower() not in EXTENSIONES:
@@ -40,6 +41,7 @@ def fotos_con_etiqueta(carpeta):
 
 
 def evaluar(carpeta, fondo="claro", carpeta_informe=RAIZ / "reports"):
+    """Clasifica cada foto, imprime el resultado y guarda el resumen y la figura."""
     fotos, ignoradas = fotos_con_etiqueta(carpeta)
     for texto in ignoradas:
         print(f"  ignorada: {texto}")
@@ -52,6 +54,7 @@ def evaluar(carpeta, fondo="claro", carpeta_informe=RAIZ / "reports"):
         imagen = cv2.imread(str(ruta))
         resultado = preprocesar(imagen, fondo=fondo) if imagen is not None else None
         if resultado is None or resultado.imagen_28 is None:
+            # No se ha encontrado el dígito: cuenta como fallo
             detalle.append({"archivo": ruta.name, "real": real, "predicho": None, "confianza": None})
             imagenes.append(np.zeros((28, 28), np.float32))
             rotulos.append(f"{real} → sin dígito")
@@ -65,6 +68,7 @@ def evaluar(carpeta, fondo="claro", carpeta_informe=RAIZ / "reports"):
         marca = "bien" if predicho == real else "FALLO"
         print(f"  {ruta.name:<28} real {real}  →  {predicho}  ({confianza(prob[predicho])})  {marca}")
 
+    # Resumen en JSON
     n = len(detalle)
     aciertos = sum(d["predicho"] == d["real"] for d in detalle)
     resumen = {
@@ -79,20 +83,20 @@ def evaluar(carpeta, fondo="claro", carpeta_informe=RAIZ / "reports"):
     carpeta_informe.mkdir(parents=True, exist_ok=True)
     (carpeta_informe / "fotos_reales.json").write_text(json.dumps(resumen, ensure_ascii=False, indent=1), encoding="utf-8")
 
+    # Figura con la imagen de 28x28 que ha recibido la red en cada foto
     exactitud = f"{100 * aciertos / n:.1f}".replace(".", ",")
-    for modo in TEMAS:
-        sufijo = "" if modo == "claro" else "_oscuro"
-        figura_imagenes(
-            imagenes, rotulos, "Mis fotos: lo que ve la red y lo que responde",
-            f"Real → predicho (confianza). Acierta {aciertos} de {n} fotos ({exactitud} %).",
-            carpeta_informe / "figuras" / f"fotos_reales{sufijo}.png", modo, columnas=min(10, n),
-        )
+    figura_imagenes(
+        imagenes, rotulos, "Mis fotos: lo que ve la red y lo que responde",
+        f"Real → predicho (confianza). Acierta {aciertos} de {n} fotos ({exactitud} %).",
+        carpeta_informe / "figuras" / "fotos_reales.png", columnas=min(10, n),
+    )
     print(f"\nExactitud con tus fotos: {aciertos} de {n} ({exactitud} %).")
     print(f"Resumen en {carpeta_informe / 'fotos_reales.json'} y figura en {carpeta_informe / 'figuras'}.")
     return resumen
 
 
 def main():
+    """Lee la carpeta de la línea de órdenes y la evalúa."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("carpeta", type=Path, help="carpeta con las fotos")
     parser.add_argument("--fondo", choices=["claro", "auto", "oscuro"], default="claro",

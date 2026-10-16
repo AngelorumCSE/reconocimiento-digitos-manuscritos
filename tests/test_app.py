@@ -1,3 +1,5 @@
+"""La web de Streamlit arranca sin errores y tiene sus tres pestañas."""
+
 from pathlib import Path
 
 import pytest

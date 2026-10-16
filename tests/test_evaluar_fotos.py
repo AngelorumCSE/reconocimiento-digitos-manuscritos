@@ -9,7 +9,7 @@ import pytest
 from src.simulacion import digito_sintetico, foto_simulada
 
 RAIZ = Path(__file__).resolve().parent.parent
-HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists() or (RAIZ / "models" / "cnn_aumentada.pt").exists()
+HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists()
 
 
 @pytest.mark.skipif(not HAY_MODELO, reason="falta el modelo entrenado")
@@ -29,4 +29,3 @@ def test_evalua_una_carpeta_de_fotos(tmp_path):
     guardado = json.loads((tmp_path / "informe" / "fotos_reales.json").read_text(encoding="utf-8"))
     assert guardado["aciertos"] == resumen["aciertos"]
     assert (tmp_path / "informe" / "figuras" / "fotos_reales.png").exists()
-    assert (tmp_path / "informe" / "figuras" / "fotos_reales_oscuro.png").exists()

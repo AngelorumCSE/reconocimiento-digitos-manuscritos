@@ -1,18 +1,23 @@
-"""Reproduce todos los experimentos y guarda métricas, modelo y figuras.
+"""Reproduce todos los experimentos y guarda las métricas, el modelo y las figuras.
 
 Uso (desde la carpeta del proyecto):
 
     python -m src.experimentos
 
-Tarda algo más de media hora en un portátil con 2 núcleos y sin GPU. Escribe:
+Tarda algo más de media hora en un portátil con 2 núcleos y sin GPU. Hace, en orden:
 
-- reports/metricas.json: todas las cifras del README;
-- reports/resultados.md: la tabla de resultados;
-- reports/figuras/*.png: las figuras (versión clara y oscura);
-- models/cnn_aumentada.pt y models/cnn_aumentada.onnx: la red que usan la web y la demo.
+1. Comparación directa con SSIM (vecino más parecido y similitud media por dígito).
+2. Plantillas medias + SSIM.
+3. HOG + SVM lineal.
+4. Tres redes neuronales: perceptrón, LeNet y LeNet mejorada con aumento de datos.
+5. Exporta la mejor red a ONNX y mide la cadena completa con fotos simuladas.
+6. Curva de aprendizaje: cada método entrenado con 100 a 55.000 imágenes.
+7. Guarda reports/metricas.json, reports/resultados.md y las figuras de reports/figuras/.
+
+El orden importa: con las mismas semillas, repetir los pasos en el mismo orden da
+exactamente los mismos resultados.
 """
 
-import inspect
 import json
 import platform
 import time
@@ -36,13 +41,12 @@ from .simulacion import foto_simulada, fotograma_simulado
 
 RAIZ = Path(__file__).resolve().parent.parent
 REPORTS = RAIZ / "reports"
-FIGURAS = REPORTS / "figuras"
 MODELOS = RAIZ / "models"
 
 N_REFERENCIAS = 1000  # referencias (100 por dígito) para la comparación directa con SSIM
-REFERENCIAS_COSTE = [100, 300, 1000, 3000]
+REFERENCIAS_COSTE = [100, 300, 1000, 3000]  # puntos de la figura de coste
 N_TEST_COSTE = 1000
-ALPHAS_SVM = [1e-5, 1e-4, 1e-3]
+ALPHAS_SVM = [1e-5, 1e-4, 1e-3]  # regularizaciones del SVM que se prueban
 TAMANOS_CURVA = [100, 300, 1000, 3000, 10000, 30000, 55000]
 N_SIMULADAS = 1000  # fotos y fotogramas simulados para medir la cadena completa (100 por dígito)
 
@@ -62,11 +66,12 @@ CONFIG_REDES = {
 }
 
 
-def _registro(nombre, y_test, pred, y_test_p, pred_p, segundos, ms, parametros=None, extra=None):
+def registro(nombre, y_test, pred, pred_perturbado, segundos, ms, parametros=None, extra=None):
+    """Resultados de un método en el formato de metricas.json."""
     salida = {
         "nombre": nombre,
         "test": metricas(y_test, pred),
-        "test_perturbado": metricas(y_test_p, pred_p),
+        "test_perturbado": metricas(y_test, pred_perturbado),
         "segundos_entrenamiento": float(segundos),
         "ms_por_imagen": float(ms),
         "parametros": parametros,
@@ -76,7 +81,8 @@ def _registro(nombre, y_test, pred, y_test_p, pred_p, segundos, ms, parametros=N
     return salida
 
 
-def _imprimir(clave, r):
+def imprimir(clave, r):
+    """Resumen de una línea de los resultados de un método."""
     print(
         f"[{clave}] test={r['test']['exactitud']:.4f}  perturbado={r['test_perturbado']['exactitud']:.4f}  "
         f"entreno={r['segundos_entrenamiento']:.1f}s  {r['ms_por_imagen']:.2f} ms/img",
@@ -84,56 +90,166 @@ def _imprimir(clave, r):
     )
 
 
-def ajustar_svm(F_train, y_train, F_val, y_val):
-    """Elige la regularización del SVM con el conjunto de validación.
+# --- 1. Comparación directa con SSIM ----------------------------------------------------
 
-    Devuelve (exactitud_val, alpha, modelo, segundos del entrenamiento elegido).
+
+def experimento_vecino_ssim(d, X_test_p, res):
+    """Compara cada imagen del test con 1.000 referencias del entrenamiento."""
+    X_ref, y_ref = subconjunto_estratificado(d["X_train"], d["y_train"], N_REFERENCIAS)
+    vecino = VecinoSSIM().fit(X_ref, y_ref)
+    inicio = time.perf_counter()
+    S = vecino.similitudes(d["X_test"])  # se calcula una vez y sirve para los dos modos
+    S_p = vecino.similitudes(X_test_p)
+    segundos = time.perf_counter() - inicio
+    ms = latencia_ms(lambda x: vecino.predict(x), d["X_test"], n=50)
+    for clave, modo in (("media_ssim", "media"), ("vecino_ssim", "1nn")):
+        res["metodos"][clave] = registro(
+            NOMBRES[clave], d["y_test"], vecino.decidir(S, y_ref, modo), vecino.decidir(S_p, y_ref, modo),
+            0.0, ms, extra={"referencias": N_REFERENCIAS, "segundos_test": segundos / 2},
+        )
+        imprimir(clave, res["metodos"][clave])
+
+
+def medir_coste_ssim(d):
+    """Exactitud y tiempo de la comparación directa según el número de referencias.
+
+    Se usan las mismas 1.000 imágenes del test (100 por dígito) en todos los puntos.
+    """
+    X_tc, y_tc = subconjunto_estratificado(d["X_test"], d["y_test"], N_TEST_COSTE)
+    coste = {"referencias": REFERENCIAS_COSTE, "n_test": N_TEST_COSTE, "1nn": [], "media": [], "ms_por_imagen": []}
+    for n_ref in REFERENCIAS_COSTE:
+        Xr, yr = subconjunto_estratificado(d["X_train"], d["y_train"], n_ref)
+        vecino = VecinoSSIM().fit(Xr, yr)
+        inicio = time.perf_counter()
+        S = vecino.similitudes(X_tc)
+        coste["ms_por_imagen"].append((time.perf_counter() - inicio) / N_TEST_COSTE * 1000)
+        for modo in ("1nn", "media"):
+            coste[modo].append(float((vecino.decidir(S, yr, modo) == y_tc).mean()))
+        print(f"  coste SSIM refs={n_ref}: 1nn={coste['1nn'][-1]:.3f} media={coste['media'][-1]:.3f}", flush=True)
+    return coste
+
+
+# --- 2. Plantillas medias + SSIM --------------------------------------------------------
+
+
+def experimento_plantillas(d, X_test_p, res):
+    """Una plantilla media por dígito; cada imagen va a la plantilla con mayor SSIM."""
+    inicio = time.perf_counter()
+    plantillas = PlantillasSSIM().fit(d["X_train"], d["y_train"])
+    segundos = time.perf_counter() - inicio
+    res["metodos"]["plantillas_ssim"] = registro(
+        NOMBRES["plantillas_ssim"], d["y_test"], plantillas.predict(d["X_test"]), plantillas.predict(X_test_p),
+        segundos, latencia_ms(lambda x: plantillas.predict(x), d["X_test"]),
+    )
+    imprimir("plantillas_ssim", res["metodos"]["plantillas_ssim"])
+
+
+# --- 3. HOG + SVM lineal ----------------------------------------------------------------
+
+
+def ajustar_svm(F_train, y_train, F_val, y_val):
+    """Entrena un SVM con cada regularización y se queda con el mejor en validación.
+
+    Devuelve (exactitud en validación, alpha elegido, modelo, segundos de ese entrenamiento).
     """
     mejor = None
     for alpha in ALPHAS_SVM:
-        t0 = time.perf_counter()
+        inicio = time.perf_counter()
         with warnings.catch_warnings():
-            # con 30 pasadas SGD a veces no llega a la tolerancia, pero la validación ya es estable
+            # con 30 pasadas, SGD a veces no llega a la tolerancia, pero la validación ya es estable
             warnings.simplefilter("ignore", ConvergenceWarning)
             modelo = crear_svm_hog(alpha).fit(F_train, y_train)
-        segundos = time.perf_counter() - t0
+        segundos = time.perf_counter() - inicio
         acc = float((modelo.predict(F_val) == y_val).mean())
         if mejor is None or acc > mejor[0]:
             mejor = (acc, alpha, modelo, segundos)
     return mejor
 
 
-def medir_coste_ssim(X_tr, y_tr, X_te, y_te):
-    """Exactitud y tiempo de la comparación directa con SSIM según el número de referencias.
+def experimento_hog_svm(d, X_test_p, res):
+    """Devuelve las características HOG, que se reutilizan en la curva de aprendizaje."""
+    inicio = time.perf_counter()
+    hog = {"train": caracteristicas_hog(d["X_train"])}
+    segundos_hog = time.perf_counter() - inicio
+    hog["val"], hog["test"], hog["test_p"] = (caracteristicas_hog(X) for X in (d["X_val"], d["X_test"], X_test_p))
 
-    Se usa una muestra estratificada del test (100 imágenes por dígito), la misma en todos
-    los puntos, para que la curva sea comparable con la tabla de resultados.
-    """
-    X_tc, y_tc = subconjunto_estratificado(X_te, y_te, N_TEST_COSTE)
-    coste = {"referencias": REFERENCIAS_COSTE, "n_test": N_TEST_COSTE, "1nn": [], "media": [], "ms_por_imagen": []}
-    for n_ref in REFERENCIAS_COSTE:
-        Xr, yr = subconjunto_estratificado(X_tr, y_tr, n_ref)
-        v = VecinoSSIM().fit(Xr, yr)
-        t0 = time.perf_counter()
-        Sc = v.similitudes(X_tc)
-        coste["ms_por_imagen"].append((time.perf_counter() - t0) / N_TEST_COSTE * 1000)
-        for modo in ("1nn", "media"):
-            coste[modo].append(float((v.decidir(Sc, yr, modo) == y_tc).mean()))
-        print(f"  coste SSIM refs={n_ref}: 1nn={coste['1nn'][-1]:.3f} media={coste['media'][-1]:.3f}", flush=True)
-    return coste
+    acc_val, alpha, svm, segundos_svm = ajustar_svm(hog["train"], d["y_train"], hog["val"], d["y_val"])
+    ms = latencia_ms(lambda x: svm.predict(caracteristicas_hog(x, n_jobs=1)), d["X_test"])
+    res["metodos"]["hog_svm"] = registro(
+        NOMBRES["hog_svm"], d["y_test"], svm.predict(hog["test"]), svm.predict(hog["test_p"]),
+        segundos_hog + segundos_svm, ms,
+        parametros=int(svm[-1].coef_.size + svm[-1].intercept_.size),
+        extra={"alpha": alpha, "exactitud_val": acc_val, "dimension_hog": int(hog["train"].shape[1])},
+    )
+    imprimir("hog_svm", res["metodos"]["hog_svm"])
+    return hog
 
 
-def medir_cadena_completa(X_te, y_te, n=N_SIMULADAS):
-    """Exactitud de la cadena completa (preprocesado + red exportada) con imágenes simuladas.
+# --- 4. Redes neuronales ----------------------------------------------------------------
 
-    A partir de dígitos del test se simulan fotos de cerca (papel con sombra, tinta, ruido y giro)
-    y fotogramas de webcam (la hoja entera sobre una mesa, dentro del recuadro de la demo).
+
+def experimento_redes(d, X_test_p, res):
+    """Entrena las tres redes y devuelve la mejor (la CNN con aumento de datos)."""
+    redes = {}
+    for clave, config in CONFIG_REDES.items():
+        print(f"Entrenando {clave}...", flush=True)
+        modelo = crear_modelo(clave)
+        info = entrenar(modelo, d["X_train"], d["y_train"], d["X_val"], d["y_val"], **config)
+        prob = predecir_probabilidades(modelo, d["X_test"])
+        prob_p = predecir_probabilidades(modelo, X_test_p)
+
+        @torch.no_grad()
+        def una(x, m=modelo):
+            """Clasifica una sola imagen (para medir el tiempo por imagen)."""
+            return m(torch.as_tensor(x, dtype=torch.float32)[:, None])
+
+        res["metodos"][clave] = registro(
+            NOMBRES[clave], d["y_test"], prob.argmax(1), prob_p.argmax(1), info["segundos"],
+            latencia_ms(una, d["X_test"]), parametros=n_parametros(modelo),
+            extra={"entrenamiento": {k: info[k] for k in ("historial", "mejor_exactitud_val", "mejor_paso", "pasos", "pasos_por_epoca")}},
+        )
+        redes[clave] = modelo
+        imprimir(clave, res["metodos"][clave])
+    return redes["cnn_aumentada"]
+
+
+# --- 5. Exportación a ONNX y cadena completa --------------------------------------------
+
+
+def exportar_onnx(modelo, ruta, X_prueba):
+    """Exporta la red a ONNX (para la web) y devuelve la diferencia máxima con PyTorch."""
+    import onnxruntime as ort
+
+    modelo.eval()
+    ejemplo = torch.zeros(1, 1, 28, 28)  # entrada de ejemplo con la forma que espera la red
+    with warnings.catch_warnings():
+        # el exportador clásico (dynamo=False) avisa de que quedará obsoleto; para esta red funciona igual
+        warnings.simplefilter("ignore", category=DeprecationWarning)
+        warnings.simplefilter("ignore", category=FutureWarning)
+        torch.onnx.export(
+            modelo, (ejemplo,), str(ruta), input_names=["imagen"], output_names=["logits"],
+            dynamic_axes={"imagen": {0: "lote"}, "logits": {0: "lote"}}, dynamo=False,
+        )
+    # Comprobación: ONNX y PyTorch deben dar las mismas puntuaciones
+    sesion = ort.InferenceSession(str(ruta), providers=["CPUExecutionProvider"])
+    x = X_prueba[:, None].astype(np.float32)
+    with torch.no_grad():
+        referencia = modelo(torch.from_numpy(x)).numpy()
+    return float(np.abs(referencia - sesion.run(None, {"imagen": x})[0]).max())
+
+
+def medir_cadena_completa(d, n=N_SIMULADAS):
+    """Exactitud del preprocesado + la red exportada con imágenes simuladas.
+
+    A partir de dígitos del test se simulan fotos de cerca (papel con sombra, tinta,
+    ruido y giro) y fotogramas de webcam (la hoja entera sobre una mesa, dentro del
+    recuadro de la demo).
     """
     from .inferencia import Clasificador
 
-    clasificador = Clasificador(MODELOS)
-    X_s, y_s = subconjunto_estratificado(X_te, y_te, n)
-    n = len(y_s)  # por si el test tiene menos imágenes que n
+    clasificador = Clasificador(MODELOS / "cnn_aumentada.onnx")
+    X_s, y_s = subconjunto_estratificado(d["X_test"], d["y_test"], n)
+    n = len(y_s)
     aciertos = {"fotos": 0, "webcam": 0}
     for i, (imagen, real) in enumerate(zip(X_s, y_s)):
         frame = fotograma_simulado(imagen, semilla=i)
@@ -146,40 +262,83 @@ def medir_cadena_completa(X_te, y_te, n=N_SIMULADAS):
             resultado = preprocesar(entrada, fondo=fondo)
             if resultado.imagen_28 is not None:
                 aciertos[clave] += int(np.argmax(clasificador.probabilidades(resultado.imagen_28)) == real)
-    return {"n": n, **{clave: valor / n for clave, valor in aciertos.items()}}
+    return {"n": n, "fotos": aciertos["fotos"] / n, "webcam": aciertos["webcam"] / n}
 
 
-def exportar_onnx(modelo, ruta, X_prueba):
-    """Exporta la red a ONNX (para la web) y comprueba que da lo mismo que PyTorch."""
-    import onnxruntime as ort
+# --- 6. Curva de aprendizaje ------------------------------------------------------------
 
-    modelo.eval()
-    ejemplo = torch.zeros(1, 1, 28, 28)
-    with warnings.catch_warnings():
-        # el exportador clásico (dynamo=False) avisa de que quedará obsoleto; para esta red funciona igual
-        warnings.simplefilter("ignore", category=DeprecationWarning)
-        warnings.simplefilter("ignore", category=FutureWarning)
-        # dynamo=False solo existe en PyTorch >= 2.5; en versiones anteriores ya es el exportador clásico
-        clasico = {"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}
-        torch.onnx.export(
-            modelo, (ejemplo,), str(ruta), input_names=["imagen"], output_names=["logits"],
-            dynamic_axes={"imagen": {0: "lote"}, "logits": {0: "lote"}}, **clasico,
+
+def curva_de_aprendizaje(d, hog, res):
+    """Exactitud en test de cada método entrenado con 100 a 55.000 imágenes."""
+    curva = {"tamanos": TAMANOS_CURVA, "orden": ["hog_svm", "mlp", "lenet", "cnn_aumentada"], "series": {}}
+    for clave in curva["orden"]:
+        curva["series"][clave] = {"nombre": NOMBRES[clave], "exactitud_test": []}
+
+    for n in TAMANOS_CURVA:
+        if n >= len(d["y_train"]):  # con todo el entrenamiento ya están los resultados de la tabla
+            for clave in curva["orden"]:
+                curva["series"][clave]["exactitud_test"].append(res["metodos"][clave]["test"]["exactitud"])
+            continue
+
+        Xs, ys = subconjunto_estratificado(d["X_train"], d["y_train"], n)
+        Fs, _ = subconjunto_estratificado(hog["train"], d["y_train"], n)  # misma semilla: mismas imágenes
+        _, _, svm_n, _ = ajustar_svm(Fs, ys, hog["val"], d["y_val"])
+        curva["series"]["hog_svm"]["exactitud_test"].append(float((svm_n.predict(hog["test"]) == d["y_test"]).mean()))
+
+        for clave in ("mlp", "lenet", "cnn_aumentada"):
+            modelo = crear_modelo(clave)
+            pasos_por_epoca = int(np.ceil(n / 128))
+            # con pocas imágenes, al menos 1.500 pasos para que la red llegue a aprender
+            entrenar(
+                modelo, Xs, ys, d["X_val"], d["y_val"], epocas=CONFIG_REDES[clave]["epocas"], pasos_minimos=1500,
+                evaluar_cada=max(pasos_por_epoca, 100), paciencia=5, aumentar=CONFIG_REDES[clave]["aumentar"],
+                verbose=False,
+            )
+            acc = float((predecir_probabilidades(modelo, d["X_test"]).argmax(1) == d["y_test"]).mean())
+            curva["series"][clave]["exactitud_test"].append(acc)
+        print(f"  curva n={n}: " + ", ".join(f"{c}={curva['series'][c]['exactitud_test'][-1]:.3f}" for c in curva["orden"]), flush=True)
+    return curva
+
+
+# --- 7. Informe -------------------------------------------------------------------------
+
+
+def tabla_markdown(res):
+    """Tabla de resultados del README (reports/resultados.md)."""
+
+    def pct(v):
+        """0.994 -> «99,4 %»."""
+        return f"{100 * v:.1f} %".replace(".", ",")
+
+    def segundos(s):
+        """Segundos de entrenamiento en texto («—» si el método no se entrena)."""
+        if s <= 0:
+            return "—"
+        return f"{s:.0f} s" if s >= 1 else "< 1 s"
+
+    filas = [
+        "| Método | Exactitud (test) | F1 macro | Exactitud con giros y desplazamientos | Entrenamiento | Tiempo por imagen | Parámetros |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for clave in res["orden_metodos"]:
+        m = res["metodos"][clave]
+        parametros = f"{m['parametros']:,}".replace(",", ".") if m["parametros"] else "—"
+        ms = f"{m['ms_por_imagen']:.2f} ms".replace(".", ",")
+        f1 = f"{m['test']['f1_macro']:.3f}".replace(".", ",")
+        filas.append(
+            f"| {m['nombre']} | {pct(m['test']['exactitud'])} | {f1} | {pct(m['test_perturbado']['exactitud'])} "
+            f"| {segundos(m['segundos_entrenamiento'])} | {ms} | {parametros} |"
         )
-    sesion = ort.InferenceSession(str(ruta), providers=["CPUExecutionProvider"])
-    x = X_prueba[:, None].astype(np.float32)
-    with torch.no_grad():
-        ref = modelo(torch.from_numpy(x)).numpy()
-    onnx_out = sesion.run(None, {"imagen": x})[0]
-    return float(np.abs(ref - onnx_out).max())
+    return "\n".join(filas) + "\n"
 
 
 def main():
-    inicio_total = time.perf_counter()
+    """Ejecuta todos los experimentos en orden y guarda los resultados."""
+    inicio = time.perf_counter()
     torch.manual_seed(SEMILLA)
     d = cargar_mnist()
-    X_tr, y_tr, X_val, y_val, X_te, y_te = (d[k] for k in ("X_train", "y_train", "X_val", "y_val", "X_test", "y_test"))
-    X_te_p = perturbar(X_te)
-    print(f"Datos: train={len(y_tr)} val={len(y_val)} test={len(y_te)}", flush=True)
+    X_test_p = perturbar(d["X_test"])  # el test perturbado (giros, desplazamientos y escala)
+    print(f"Datos: train={len(d['y_train'])} val={len(d['y_val'])} test={len(d['y_test'])}", flush=True)
 
     res = {
         "fecha": date.today().isoformat(),
@@ -190,143 +349,34 @@ def main():
             "cpu": platform.processor() or platform.machine(),
             "hilos_torch": torch.get_num_threads(),
         },
-        "particion": {"train": len(y_tr), "val": len(y_val), "test": len(y_te)},
+        "particion": {"train": len(d["y_train"]), "val": len(d["y_val"]), "test": len(d["y_test"])},
         "orden_metodos": list(NOMBRES),
         "metodos": {},
     }
 
-    # --- 1. Comparación directa con muestras de referencia (SSIM) -------------------------
-    X_ref, y_ref = subconjunto_estratificado(X_tr, y_tr, N_REFERENCIAS)
-    vecino = VecinoSSIM().fit(X_ref, y_ref)
-    t0 = time.perf_counter()
-    S = vecino.similitudes(X_te)
-    S_p = vecino.similitudes(X_te_p)
-    segundos_ssim = time.perf_counter() - t0
-    ms_vecino = latencia_ms(lambda x: vecino.predict(x), X_te, n=50)
-    for clave, modo in (("media_ssim", "media"), ("vecino_ssim", "1nn")):
-        res["metodos"][clave] = _registro(
-            NOMBRES[clave], y_te, vecino.decidir(S, y_ref, modo), y_te, vecino.decidir(S_p, y_ref, modo),
-            0.0, ms_vecino, extra={"referencias": N_REFERENCIAS, "segundos_test": segundos_ssim / 2},
-        )
-        _imprimir(clave, res["metodos"][clave])
+    experimento_vecino_ssim(d, X_test_p, res)  # 1
+    res["coste_ssim"] = medir_coste_ssim(d)
+    experimento_plantillas(d, X_test_p, res)  # 2
+    hog = experimento_hog_svm(d, X_test_p, res)  # 3
+    cnn = experimento_redes(d, X_test_p, res)  # 4
 
-    res["coste_ssim"] = medir_coste_ssim(X_tr, y_tr, X_te, y_te)
-
-    # --- 2. Plantillas medias + SSIM -------------------------------------------------------
-    t0 = time.perf_counter()
-    plantillas = PlantillasSSIM().fit(X_tr, y_tr)
-    segundos = time.perf_counter() - t0
-    res["metodos"]["plantillas_ssim"] = _registro(
-        NOMBRES["plantillas_ssim"], y_te, plantillas.predict(X_te), y_te, plantillas.predict(X_te_p),
-        segundos, latencia_ms(lambda x: plantillas.predict(x), X_te),
-    )
-    _imprimir("plantillas_ssim", res["metodos"]["plantillas_ssim"])
-
-    # --- 3. HOG + SVM lineal --------------------------------------------------------------
-    t0 = time.perf_counter()
-    F_tr = caracteristicas_hog(X_tr)
-    segundos_hog_train = time.perf_counter() - t0
-    F_val, F_te, F_te_p = caracteristicas_hog(X_val), caracteristicas_hog(X_te), caracteristicas_hog(X_te_p)
-    acc_val, alpha, svm, segundos_svm = ajustar_svm(F_tr, y_tr, F_val, y_val)
-    ms_svm = latencia_ms(lambda x: svm.predict(caracteristicas_hog(x, n_jobs=1)), X_te)
-    res["metodos"]["hog_svm"] = _registro(
-        NOMBRES["hog_svm"], y_te, svm.predict(F_te), y_te, svm.predict(F_te_p),
-        segundos_hog_train + segundos_svm, ms_svm,
-        parametros=int(svm[-1].coef_.size + svm[-1].intercept_.size),
-        extra={"alpha": alpha, "exactitud_val": acc_val, "dimension_hog": int(F_tr.shape[1])},
-    )
-    _imprimir("hog_svm", res["metodos"]["hog_svm"])
-
-    # --- 4. Redes neuronales ---------------------------------------------------------------
-    redes = {}
-    for clave, config in CONFIG_REDES.items():
-        print(f"Entrenando {clave}...", flush=True)
-        modelo = crear_modelo(clave)
-        info = entrenar(modelo, X_tr, y_tr, X_val, y_val, **config)
-        prob = predecir_probabilidades(modelo, X_te)
-        prob_p = predecir_probabilidades(modelo, X_te_p)
-
-        @torch.no_grad()
-        def una(x, m=modelo):
-            return m(torch.as_tensor(x, dtype=torch.float32)[:, None])
-
-        res["metodos"][clave] = _registro(
-            NOMBRES[clave], y_te, prob.argmax(1), y_te, prob_p.argmax(1), info["segundos"],
-            latencia_ms(una, X_te), parametros=n_parametros(modelo),
-            extra={"entrenamiento": {k: info[k] for k in ("historial", "mejor_exactitud_val", "mejor_paso", "pasos", "pasos_por_epoca")}},
-        )
-        redes[clave] = (modelo, prob)
-        _imprimir(clave, res["metodos"][clave])
-
-    # --- 5. Guardar la red de la demo y exportarla a ONNX ---------------------------------
+    # 5. La red de la web y la demo: se guarda en PyTorch y en ONNX
     MODELOS.mkdir(exist_ok=True)
-    cnn, _ = redes["cnn_aumentada"]
     torch.save(cnn.state_dict(), MODELOS / "cnn_aumentada.pt")
-    res["onnx_diferencia_max"] = exportar_onnx(cnn, MODELOS / "cnn_aumentada.onnx", X_te[:200])
+    res["onnx_diferencia_max"] = exportar_onnx(cnn, MODELOS / "cnn_aumentada.onnx", d["X_test"][:200])
     print(f"ONNX exportado (diferencia máxima con PyTorch: {res['onnx_diferencia_max']:.2e})", flush=True)
-    res["cadena_completa"] = medir_cadena_completa(X_te, y_te)
+    res["cadena_completa"] = medir_cadena_completa(d)
     print(f"Cadena completa con imágenes simuladas: {res['cadena_completa']}", flush=True)
 
-    # --- 6. Curva de aprendizaje -----------------------------------------------------------
-    curva = {"tamanos": TAMANOS_CURVA, "orden": ["hog_svm", "mlp", "lenet", "cnn_aumentada"], "series": {}}
-    for clave in curva["orden"]:
-        curva["series"][clave] = {"nombre": NOMBRES[clave], "exactitud_test": []}
-    for n in TAMANOS_CURVA:
-        if n >= len(y_tr):
-            for clave in curva["orden"]:
-                curva["series"][clave]["exactitud_test"].append(res["metodos"][clave]["test"]["exactitud"])
-            continue
-        Xs, ys = subconjunto_estratificado(X_tr, y_tr, n)
-        Fs, _ = subconjunto_estratificado(F_tr, y_tr, n)  # misma semilla: mismas imágenes
-        _, _, svm_n, _ = ajustar_svm(Fs, ys, F_val, y_val)
-        curva["series"]["hog_svm"]["exactitud_test"].append(float((svm_n.predict(F_te) == y_te).mean()))
-        for clave in ("mlp", "lenet", "cnn_aumentada"):
-            modelo = crear_modelo(clave)
-            ppe = int(np.ceil(n / 128))
-            entrenar(
-                modelo, Xs, ys, X_val, y_val, epocas=CONFIG_REDES[clave]["epocas"], pasos_minimos=1500,
-                evaluar_cada=max(ppe, 100), paciencia=5, aumentar=CONFIG_REDES[clave]["aumentar"], verbose=False,
-            )
-            acc = float((predecir_probabilidades(modelo, X_te).argmax(1) == y_te).mean())
-            curva["series"][clave]["exactitud_test"].append(acc)
-        print(f"  curva n={n}: " + ", ".join(f"{c}={curva['series'][c]['exactitud_test'][-1]:.3f}" for c in curva["orden"]), flush=True)
-    res["curva_aprendizaje"] = curva
+    res["curva_aprendizaje"] = curva_de_aprendizaje(d, hog, res)  # 6
 
-    # --- 7. Informe -----------------------------------------------------------------------
-    res["segundos_totales"] = time.perf_counter() - inicio_total
+    # 7. Informe y figuras
+    res["segundos_totales"] = time.perf_counter() - inicio
     REPORTS.mkdir(exist_ok=True)
     (REPORTS / "metricas.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     (REPORTS / "resultados.md").write_text(tabla_markdown(res), encoding="utf-8")
-
-    # figuras: las de imágenes (plantillas, fallos y preprocesado) se calculan con el modelo recién guardado
-    generar_todas(res, FIGURAS, extras_desde_modelo())
+    generar_todas(res, extras_desde_modelo())
     print(f"Listo en {res['segundos_totales'] / 60:.1f} minutos.", flush=True)
-
-
-def _pct(v):
-    return f"{100 * v:.1f} %".replace(".", ",")
-
-
-def _seg(s):
-    if s <= 0:
-        return "—"
-    return f"{s:.0f} s" if s >= 1 else "< 1 s"
-
-
-def tabla_markdown(res):
-    filas = [
-        "| Método | Exactitud (test) | F1 macro | Exactitud con giros y desplazamientos | Entrenamiento | Tiempo por imagen | Parámetros |",
-        "|---|---:|---:|---:|---:|---:|---:|",
-    ]
-    for clave in res["orden_metodos"]:
-        m = res["metodos"][clave]
-        parametros = f"{m['parametros']:,}".replace(",", ".") if m["parametros"] else "—"
-        ms = f"{m['ms_por_imagen']:.2f} ms".replace(".", ",")
-        filas.append(
-            f"| {m['nombre']} | {_pct(m['test']['exactitud'])} | {m['test']['f1_macro']:.3f}".replace(".", ",")
-            + f" | {_pct(m['test_perturbado']['exactitud'])} | {_seg(m['segundos_entrenamiento'])} | {ms} | {parametros} |"
-        )
-    return "\n".join(filas) + "\n"
 
 
 if __name__ == "__main__":

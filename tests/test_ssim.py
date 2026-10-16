@@ -1,3 +1,5 @@
+"""El SSIM vectorizado da lo mismo que el de scikit-image."""
+
 import numpy as np
 from skimage.metrics import structural_similarity
 

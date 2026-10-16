@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 RAIZ = Path(__file__).resolve().parent.parent
-HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists() or (RAIZ / "models" / "cnn_aumentada.pt").exists()
+HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists()
 HAY_DATOS = (RAIZ / "data" / "MNIST" / "raw").exists()
 
 

@@ -1,3 +1,5 @@
+"""El preprocesado deja las fotos con el formato de MNIST y no se deja engañar por el fondo."""
+
 import cv2
 import numpy as np
 

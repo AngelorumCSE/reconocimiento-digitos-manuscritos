@@ -9,7 +9,7 @@ import pytest
 from src.simulacion import digito_sintetico, fotograma_simulado
 
 RAIZ = Path(__file__).resolve().parent.parent
-HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists() or (RAIZ / "models" / "cnn_aumentada.pt").exists()
+HAY_MODELO = (RAIZ / "models" / "cnn_aumentada.onnx").exists()
 
 
 class CamaraSimulada:

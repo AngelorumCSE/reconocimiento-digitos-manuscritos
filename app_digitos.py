@@ -1,7 +1,10 @@
 """Web de demostración (Streamlit): reconoce un dígito escrito a mano desde la cámara o una foto.
 
-Ejecución local:
+Ejecución en local:
     streamlit run app_digitos.py
+
+Publicada en https://digitos-mnist.streamlit.app (Streamlit Community Cloud la
+despliega desde este repositorio e instala solo requirements.txt).
 """
 
 from pathlib import Path
@@ -17,17 +20,19 @@ from src.preprocesado import preprocesar
 RAIZ = Path(__file__).resolve().parent
 FIGURAS = RAIZ / "reports" / "figuras"
 TABLA = RAIZ / "reports" / "resultados.md"
-UMBRAL_CONFIANZA = 0.6
+UMBRAL_CONFIANZA = 0.6  # por debajo de esta confianza, la web responde «?»
 
 st.set_page_config(page_title="Reconocimiento de dígitos manuscritos", layout="wide")
 
 
-@st.cache_resource
+@st.cache_resource  # el modelo se carga una sola vez, no en cada interacción
 def cargar_clasificador():
+    """La red exportada a ONNX, lista para clasificar."""
     return Clasificador()
 
 
 def leer_imagen(archivo):
+    """Convierte el archivo subido (o la foto de la cámara) en una imagen de OpenCV (BGR)."""
     datos = np.frombuffer(archivo.getvalue(), np.uint8)
     return cv2.imdecode(datos, cv2.IMREAD_COLOR)
 
@@ -38,11 +43,13 @@ def porcentaje(p):
 
 
 def ampliar(imagen, lado=196):
+    """Amplía una imagen pequeña (como la de 28x28) para verla bien, sin suavizar los píxeles."""
     imagen = (imagen * 255).astype(np.uint8) if imagen.dtype != np.uint8 else imagen
     return cv2.resize(imagen, (lado, lado), interpolation=cv2.INTER_NEAREST)
 
 
 def mostrar_prediccion(imagen_bgr, fondo="auto"):
+    """Preprocesa la imagen, la clasifica y enseña cada paso y la probabilidad de cada dígito."""
     resultado = preprocesar(imagen_bgr, fondo=fondo)
     if resultado.imagen_28 is None:
         st.warning(
@@ -55,6 +62,7 @@ def mostrar_prediccion(imagen_bgr, fondo="auto"):
     mejor = int(np.argmax(prob))
     confianza = float(prob[mejor])
 
+    # Recuadro azul alrededor del dígito encontrado
     original = cv2.cvtColor(imagen_bgr, cv2.COLOR_BGR2RGB)
     x, y, w, h = resultado.caja
     grosor = max(2, min(original.shape[:2]) // 150)
@@ -79,6 +87,8 @@ def mostrar_prediccion(imagen_bgr, fondo="auto"):
         tabla = pd.DataFrame({"Probabilidad (%)": 100 * prob}, index=[str(d) for d in range(10)])
         st.bar_chart(tabla, horizontal=True, sort=False, color="#2a78d6", height=320)
 
+
+# --- La página --------------------------------------------------------------------------
 
 st.title("Reconocimiento de dígitos manuscritos")
 st.write(
@@ -117,4 +127,4 @@ with pestana_estudio:
         if ruta.exists():
             st.image(str(ruta), caption=pie, width="stretch")
 
-st.caption(f"Motor de inferencia: {cargar_clasificador().motor}. Código y metodología en el README del repositorio.")
+st.caption("La red se ejecuta con ONNX Runtime. Código y metodología en el README del repositorio.")
